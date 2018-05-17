@@ -17,7 +17,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="Refresh"
-            android:onClick="onClick"/>
+            android:onClick="onClickRefresh"/>
 
         <Button
             android:id="@+id/btnGenreSelect"
@@ -28,7 +28,9 @@
     </LinearLayout>
 
     <ListView
+        android:id="@+id/movieList"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        />
 
 </LinearLayout>

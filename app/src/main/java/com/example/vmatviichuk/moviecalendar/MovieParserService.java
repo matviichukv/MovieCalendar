@@ -2,7 +2,10 @@ package com.example.vmatviichuk.moviecalendar;
 
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.ContentValues;
 import android.content.Intent;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 import android.os.IBinder;
 import android.util.Log;
 
@@ -15,6 +18,7 @@ import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -27,8 +31,7 @@ public class MovieParserService extends Service {
     private PendingIntent pendingIntent;
 
     private final String protocol = "https";
-    private final String host = "www.kinonews.ru";
-
+    private final String host = "www.imdb.com";
 
     public MovieParserService() {
 
@@ -43,63 +46,129 @@ public class MovieParserService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.d("log1", "111");
+        //dbHelper = new DBHelper(this);
+        pendingIntent = intent.getParcelableExtra("pendingIntent");
         new Thread(new Runnable() {
             @Override
             public void run() {
-                parse(10);
+                parse();
             }
         }).start();
         return Service.START_STICKY;
     }
 
-    public void parse(int count, int pageSkip) {
+    public void parse() {
         Document doc = null;
         try {
-            doc = Jsoup.parse(new URL(protocol, host, -1, "/premiers_usa/")
+            doc = Jsoup.parse(new URL(protocol, host, -1, "/calendar/")
                     , 10000);
         } catch (IOException e) {
             e.printStackTrace();
         }
-        for (int i = 0; i < count; i++) {
-            Movie movie = parseMoviePage(doc.select(".premier_date_mobil+ .titlefilm").get(i).attr("href"));
-            Log.d("log1", movie.getName());
+        for (int i = 0; i < doc.select("#main li").size(); i++) {
+            Movie movie = parseMoviePage(doc.select("#main li > a").get(i).attr("href"));
+            if (movie != null) {
+                writeMovieToDb(movie);
+                Log.d("log1", movie.getName());
+            }
+        }
+        try {
+            pendingIntent.send(MainActivity.STATUS_OK);
+        } catch (PendingIntent.CanceledException e) {
+            e.printStackTrace();
         }
     }
 
     public Movie parseMoviePage(String movieLink) {
         Document doc = null;
+        SQLiteDatabase db = MainActivity.dbHelper.getReadableDatabase();
         try {
             doc = Jsoup.parse(new URL(protocol, host, -1, movieLink)
                     , 10000);
         } catch (IOException e) {
             e.printStackTrace();
         }
+
         Movie movie = new Movie();
-        movie.setName( doc.select(".film").get(0).text());
-        movie.setDescription( doc.select(".game_main .textart15").get(0).text());
-        List<String> genreList = movie.getGenres();
-        for(String genre : doc.select(".textgray")
-                .get(0)
-                .text()
-                .replace(", ", ",")
-                .split(",")) {
-            genreList.add(genre);
-        }
-        movie.setReleaseYear(Integer.valueOf(doc.select(".tab-film tr").get(1).child(1).child(0).text()));
-        movie.setProducers( doc.select("tr:nth-child(7) td+ td").get(0).text());
-        movie.setActors( doc.select("tr:nth-child(8) td+ td").get(0).text());
-        movie.setOriginCountry( doc.select("tr:nth-child(9) td+ td").get(0).text());
-        movie.setDuration(Integer.valueOf(doc.select("tr:nth-child(12) td+ td").get(0).text().replace(" мин.", "")));
-        DateFormat df = new SimpleDateFormat("dd.MM.yyyy");
-        try {
-            movie.setPremierDate(( df.parse(doc.select("tr:nth-child(10) td+ td").get(0).text()).getTime()));
-        } catch (ParseException e) {
-            e.printStackTrace();
-        }
-        Pattern pattern = Pattern.compile("(\\d+)");
-        Matcher matcher = pattern.matcher(doc.baseUri());
+        Pattern pattern = Pattern.compile(".+?(\\d+).+");
+        Matcher matcher = pattern.matcher(movieLink);
+        matcher.matches();
         movie.setId(Integer.valueOf(matcher.group(1)));
+        if (db.query("movies", null, "_id = ?", new String[] { Integer.toString(movie.getId()) }, null, null, null).moveToNext()) {
+            return null;
+        }
+        movie.setName( doc.select("h1").get(0).text());
+        movie.setDescription( doc.select(".summary_text").get(0).text());
+        List<String> genreList = movie.getGenres();
+        for(int i = 0;i < doc.select(".subtext .itemprop").size(); i++) {
+            genreList.add(doc.select(".subtext .itemprop").get(i).text());
+        }
+        movie.setProducers( doc.select(".summary_text+ .credit_summary_item .itemprop").get(0).text());
+        try {
+            movie.setActors(doc.select(".credit_summary_item~ .credit_summary_item+ .credit_summary_item .itemprop").get(0).text());
+        } catch (Exception _) {
+            try {
+                movie.setActors(doc.select(".credit_summary_item+ .credit_summary_item .itemprop").get(0).text());
+            } catch (Exception _1) {
+                movie.setActors("No known actors yet. Sorry :(");
+            }
+
+        }
+        DateFormat df = new SimpleDateFormat("dd MMMM yyyy", Locale.ENGLISH);
+        try {
+            String date = doc.select(".subtext a~ .ghost+ a").get(0).text();
+            Pattern p = Pattern.compile("(\\d{1,2} \\w+? \\d{4}) .+");
+            Matcher m = p.matcher(date);
+            m.matches();
+            movie.setPremierDate((df.parse(m.group(1)).getTime()));
+        } catch (ParseException e) {
+            return null;
+        }
+        catch (IllegalStateException e) {
+            return null;
+        }
+
+
         return movie;
+    }
+
+    private void writeMovieToDb (Movie movie) {
+        SQLiteDatabase db = MainActivity.dbHelper.getWritableDatabase();
+        writeGenresToDb(movie.getGenres(), db);
+        ContentValues cv = new ContentValues();
+        cv.put("_id", movie.getId());
+        cv.put("name", movie.getName());
+        cv.put("premier_date", movie.getPremierDate());
+        cv.put("description", movie.getDescription());
+        cv.put("actors", movie.getActors());
+        cv.put("directors", movie.getProducers());
+        db.insert("movies", null, cv);
+        linkMoviesAndGenres(movie.getId(), movie.getGenres(), db);
+
+    }
+
+    private void writeGenresToDb(List<String> genres, SQLiteDatabase db) {
+        for (int i = 0; i < genres.size(); i++) {
+           Cursor c = db.query("genres", null, "name LIKE ?", new String[] {genres.get(i)}, null, null, null);
+           if (!c.moveToFirst()) {
+               ContentValues cv = new ContentValues();
+               cv.put("name", genres.get(i));
+               db.insert("genres", null, cv);
+           }
+        }
+    }
+
+    private void linkMoviesAndGenres(int movieId, List<String> genres, SQLiteDatabase db) {
+        for (int i = 0; i < genres.size(); i++) {
+            Cursor c = db.query("genres", null, "name LIKE ?", new String[] { genres.get(i) },
+            null, null, null);
+            c.moveToFirst();
+            int genreId = c.getInt(c.getColumnIndex("_id"));
+            ContentValues cv = new ContentValues();
+            cv.put("movie_id", movieId);
+            cv.put("genre_id", genreId);
+            db.insert("movies_genres", null, cv);
+        }
     }
 
     @Override

@@ -1,23 +1,60 @@
 package com.example.vmatviichuk.moviecalendar;
 
+import android.os.Parcel;
+import android.os.Parcelable;
+import android.text.TextUtils;
+
 import java.util.ArrayList;
 import java.util.List;
 
-public class Movie {
+public class Movie implements Parcelable{
 
     int id;
     String name;
     String description;
     List<String> genres;
-    int releaseYear;
     long premierDate;
     String actors;
     String producers;
-    String originCountry;
-    int duration;
+
+
 
     public Movie() {
+
         genres = new ArrayList<>();
+    }
+
+    public static final Parcelable.Creator<Movie> CREATOR = new Parcelable.Creator<Movie>() {
+        // распаковываем объект из Parcel
+        public Movie createFromParcel(Parcel in) {
+            return new Movie(in);
+        }
+
+        public Movie[] newArray(int size) {
+            return new Movie[size];
+        }
+    };
+
+    private Movie(Parcel p) {
+        genres = new ArrayList<>();
+        setId(p.readInt());
+        setName(p.readString());
+        setDescription(p.readString());
+        p.readStringList(genres);
+        setPremierDate(p.readLong());
+        setActors(p.readString());
+        setProducers(p.readString());
+    }
+
+    @Override
+    public void writeToParcel(Parcel dest, int flags) {
+        dest.writeInt(id);
+        dest.writeString(name);
+        dest.writeString(description);
+        dest.writeStringList(genres);
+        dest.writeLong(premierDate);
+        dest.writeString(actors);
+        dest.writeString(producers);
     }
 
     public int getId() {
@@ -44,14 +81,6 @@ public class Movie {
         this.description = description;
     }
 
-    public int getReleaseYear() {
-        return releaseYear;
-    }
-
-    public void setReleaseYear(int releaseDate) {
-        this.releaseYear = releaseDate;
-    }
-
     public long getPremierDate() {
         return premierDate;
     }
@@ -76,22 +105,6 @@ public class Movie {
         this.producers = producers;
     }
 
-    public String getOriginCountry() {
-        return originCountry;
-    }
-
-    public void setOriginCountry(String originCountry) {
-        this.originCountry = originCountry;
-    }
-
-    public int getDuration() {
-        return duration;
-    }
-
-    public void setDuration(int duration) {
-        this.duration = duration;
-    }
-
     public List<String> getGenres() {
         return genres;
     }
@@ -99,4 +112,11 @@ public class Movie {
     public void setGenres(List<String> genres) {
         this.genres = genres;
     }
+
+    @Override
+    public int describeContents() {
+        return 0;
+    }
+
+
 }
